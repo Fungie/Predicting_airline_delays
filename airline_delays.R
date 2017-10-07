@@ -3,7 +3,10 @@
 library(ggplot2)
 library(dplyr)
 library(data.table)
-
+library(testthat)
+library(stringr)
+library(lubridate)
+library(lazyeval)
 
 # Reading in data
 setwd("/Users/aurenferguson/Documents/Predicting_airline_delays/")
@@ -107,4 +110,154 @@ ggplot(airports, aes(x = reorder(Origin, mean_diff), y = mean_diff, fill = Origi
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
 
+# what are biggest factors that contribute to a delay
+# to do
 
+# Splitting the data into train and test sets -----------------------------
+# creating index
+data$index <- 1:nrow(data)
+
+# setting seed and taking sample from index for train
+set.seed(1234)
+index_train <- sample(data$index, 0.8 * nrow(data))
+
+# creating train and test sets
+train <- data %>% filter(index %in% index_train)
+test <- data %>% filter(!(index %in% index_train))
+
+# unit test
+testthat::test_that("Length of train and test sets equal the base dataset",{
+  
+  testthat::expect_equal(nrow(data), nrow(train) + nrow(test))
+})
+
+
+# Preparing data for modelling --------------------------------------------
+# finding columns with only one unique value
+unique_cols <- which(sapply(train, function(x){length(unique(x))}) == 1)
+
+# removing them
+train <- train %>% select(-one_of(names(unique_cols)))
+
+# removing other columns
+train <- train %>% select(-V1, -DayofMonth, -DepTime, -FlightNum, -ActualElapsedTime, -DepDelay, -(TaxiIn:LateAircraftDelay), -ArrDelay, -ArrTime)
+
+# feature engineering
+# Time of departure would be an obvious reason why flights are delayed, i.e later flights are more likely to be delayed due to knock on from morning
+# The exact departure time is perhaps too granular. Instread, we will take the departure time
+
+# dropping rows with bad departure date column
+train <- train %>% filter(nchar(CRSDepTime) >= 3 & nchar(CRSDepTime) <= 4)
+
+# taking only the hour 
+train <- train %>% mutate( CRSDepTime = str_sub(CRSDepTime, 1, nchar(CRSDepTime) - 2),
+                           CRSDepTime = as.integer((CRSDepTime)))
+
+train <- train %>% filter(nchar(CRSArrTime) >= 3 & nchar(CRSArrTime) <= 4)
+train <- train %>% mutate( CRSArrTime = str_sub(CRSArrTime, 1, nchar(CRSArrTime) - 2),
+                           CRSArrTime = as.integer((CRSArrTime)))
+
+# creating scores for factor variables in order for them to be allowed 
+# Month
+month_change <- train %>% group_by(Month) %>%
+  summarise(n_flights = n(),
+            no_delayed = sum(delay_marker),
+            amt_delay = no_delayed / n_flights)
+
+# mean amount delayed
+mean_month <- mean(month_change$amt_delay)
+
+# calculating score
+month_change <- month_change %>% mutate(Month_score = round(amt_delay - mean_delay,4)) %>%
+  select(Month, Month_score)
+
+# joining back to train
+train <- inner_join(train, month_change, on = 'Month')
+
+##########################
+# Day of week
+day_change <- train %>% group_by(DayOfWeek) %>%
+  summarise(n_flights = n(),
+            no_delayed = sum(delay_marker),
+            amt_delay = no_delayed / n_flights)
+
+# mean amount delayed
+mean_day <- mean(day_change$amt_delay)
+
+# calculating score
+day_change <- day_change %>% mutate(Day_score = round(amt_delay - mean_delay,4)) %>%
+  select(DayOfWeek, Day_score)
+
+# joining back to train
+train <- inner_join(train, day_change, on = 'DayOfWeek')
+
+######################
+# carrier
+carrier_change <- train %>% group_by(UniqueCarrier) %>%
+  summarise(n_flights = n(),
+            no_delayed = sum(delay_marker),
+            amt_delay = no_delayed / n_flights)
+
+# mean amount delayed
+mean_carrier <- mean(carrier_change$amt_delay)
+
+# calculating score
+carrier_change <- carrier_change %>% mutate(carrier_score = round(amt_delay - mean_delay,4)) %>%
+  select(UniqueCarrier, carrier_score)
+
+# joining back to train
+train <- inner_join(train, carrier_change, on = 'UniqueCarrier')
+#######################
+# Tail number
+tail_change <- train %>% group_by(TailNum) %>%
+  summarise(n_flights = n(),
+            no_delayed = sum(delay_marker),
+            amt_delay = no_delayed / n_flights)
+
+# mean amount delayed
+mean_tail <- mean(tail_change$amt_delay)
+
+# calculating score
+tail_change <- tail_change %>% mutate(tail_score = round(amt_delay - mean_delay,4)) %>%
+  select(TailNum, tail_score)
+
+# joining back to train
+train <- inner_join(train, tail_change, on = 'TailNum')
+########################
+# Origin
+origin_change <- train %>% group_by(Origin) %>%
+  summarise(n_flights = n(),
+            no_delayed = sum(delay_marker),
+            amt_delay = no_delayed / n_flights)
+
+# mean amount delayed
+mean_origin <- mean(origin_change$amt_delay)
+
+# calculating score
+origin_change <- origin_change %>% mutate(origin_score = round(amt_delay - mean_delay,4)) %>%
+  select(Origin, origin_score)
+
+# joining back to train
+train <- inner_join(train, origin_change, on = 'TailNum')
+########################
+# Destination
+dest_change <- train %>% group_by(Dest) %>%
+  summarise(n_flights = n(),
+            no_delayed = sum(delay_marker),
+            amt_delay = no_delayed / n_flights)
+
+# mean amount delayed
+mean_dest <- mean(dest_change$amt_delay)
+
+# calculating score
+dest_change <- dest_change %>% mutate(dest_score = round(amt_delay - mean_delay,4)) %>%
+  select(Dest, dest_score)
+
+# joining back to train
+train <- inner_join(train, dest_change, on = 'Dest')
+#########################
+
+
+# dummy glm
+a <- glm(delay_marker ~ Month_score + Day_score + carrier_score + tail_score + origin_score + dest_score, family = 'binomial', data = train)
+summary(a)
