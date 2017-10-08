@@ -258,6 +258,13 @@ train <- inner_join(train, dest_change, on = 'Dest')
 #########################
 
 
-# dummy glm
-a <- glm(delay_marker ~ Month_score + Day_score + carrier_score + tail_score + origin_score + dest_score, family = 'binomial', data = train)
-summary(a)
+# Cluster analysis --------------------------------------------------------
+# creating cluster dataset
+cluster_df <- train %>% select(index, CRSDepTime:CRSArrTime, CRSElapsedTime, Distance, Month_score:dest_score)
+
+# # dummy glm
+# a <- glm(delay_marker ~ Month_score + Day_score + carrier_score + tail_score + origin_score + dest_score, family = 'binomial', data = train)
+# summary(a)
+
+cluster_df_scale <- scale(cluster_df[2:length(cluster_df)])
+
