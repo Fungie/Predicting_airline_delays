@@ -7,6 +7,7 @@ library(testthat)
 library(caret)
 library(corrplot)
 library(pROC)
+library(xgboost)
 
 
 # Reading in data
@@ -344,7 +345,8 @@ logistic_form <- as.formula(as.factor(delay_marker) ~ as.factor(Month_alter)+
                                            as.factor(Carrier_alter) + 
                                            #cluster_pca +
                                            as.factor(Origin_alter) +
-                                           as.factor(Dest_alter))
+                                           as.factor(Dest_alter),
+                                           as.factor(y_pred))
 
 train_control<- trainControl(method="cv", number=10, allowParallel = TRUE)
 
@@ -358,7 +360,7 @@ model <-  train(logistic_form,
 summary(model)
 model$results
 
-#model1 = glm(family = binomial, formula = logistic_form, data = train)
+
 
 
 # creating correlation plot
@@ -420,8 +422,5 @@ test_sample <- test %>% filter(index %in% index_test)
 auc <- auc(test_sample$delay_marker, test_sample$pred)
 plot(roc(test_sample$delay_marker, test_sample$pred))
 
-# Modelling the residuals
-# train the model 
-model<- train(logistic_form, data=train, trControl=train_control, method="glm", family=binomial())
-res <- resid(model1)
-train$residual <- res
+
+
