@@ -4,11 +4,10 @@ library(ggplot2)
 library(dplyr)
 library(data.table)
 library(testthat)
-library(stringr)
-library(lubridate)
-library(lazyeval)
-library(FactoMineR)
 library(caret)
+library(corrplot)
+library(pROC)
+
 
 # Reading in data
 setwd("/Users/aurenferguson/Documents/Predicting_airline_delays/")
@@ -337,15 +336,92 @@ train <- train %>% mutate(Month_alter = ifelse(Month == 10 | Month == 9 | Month 
 )
 
 # Model formula
-logistic_form <- as.formula(delay_marker ~ Month_alter +
-                                           Day_alter +
+logistic_form <- as.formula(as.factor(delay_marker) ~ as.factor(Month_alter)+
+                                           as.factor(Day_alter) +
+                              
                                            pca1 +
                                            pca2 +
-                                           Carrier_alter + 
-                                           cluster_pca +
-                                           Origin_alter +
-                                           Dest_alter)
+                                           as.factor(Carrier_alter) + 
+                                           #cluster_pca +
+                                           as.factor(Origin_alter) +
+                                           as.factor(Dest_alter))
 
-#  glm
-log_model <- glm(logistic_form, family = 'binomial', data = train)
-summary(log_model)
+train_control<- trainControl(method="cv", number=10, allowParallel = TRUE)
+
+model <-  train(logistic_form,
+                      data      = train,
+                      method    = "glm",
+                      family    = binomial,
+                      trControl = train_control)
+
+# print cv scores
+summary(model)
+model$results
+
+#model1 = glm(family = binomial, formula = logistic_form, data = train)
+
+
+# creating correlation plot
+corr_data <- cor(train %>% select(Month_alter ,
+                                Day_alter ,
+                                pca1 ,
+                                pca2 ,
+                                Carrier_alter , 
+                              #  cluster_pca ,
+                                Origin_alter ,
+                                Dest_alter))
+
+corrplot(corr_data, method = 'number')
+
+# predict on train
+pred <- predict(model, newdata = train, type = 'prob')
+train$pred <- pred[,2]
+train$pred_bin <- ifelse(train$pred > 0.3425,1,0)
+
+# confusion matrix
+train_confusion <- confusionMatrix(data = train$pred_bin, reference = train$delay_marker)
+
+# predicting on test data
+# joining back aggregated cat columns
+test <- inner_join(test, airports_origin_model, by = 'Origin')
+test <- inner_join(test, airports_dest_model, by = 'Dest')
+test <- inner_join(test, airline_model, by = 'UniqueCarrier')
+
+# Altering Day and Month variables
+test <- test %>% mutate(Month_alter = ifelse(Month == 10 | Month == 9 | Month == 5, 1,
+                                               ifelse(Month == 4 | Month == 8 | Month == 11, 2,
+                                                      ifelse(Month == 3 | Month == 1 | Month == 7, 3, 4))),
+                          
+                          Day_alter = ifelse(DayOfWeek == 3 | DayOfWeek == 6, 1,
+                                             ifelse(DayOfWeek == 4 | DayOfWeek == 1, 2, 3)),
+                          
+                          cluster_pca = cluster_pca - 1
+                          
+)
+
+# Predicting on test data
+pred_test <- predict(model, newdata = test, type = 'prob')
+test$pred <- pred_test[,2]
+
+# setting cutoff
+test$pred_bin <- ifelse(test$pred > 0.3425,1,0)
+
+# confustin matrix for test
+test_confusion <- confusionMatrix(data = test$pred_bin, reference = test$delay_marker)
+
+test_confusion$byClass
+
+# sampling test
+set.seed(999)
+index_test <- sample(test$index, 10000)
+test_sample <- test %>% filter(index %in% index_test)
+
+# ROC curve
+auc <- auc(test_sample$delay_marker, test_sample$pred)
+plot(roc(test_sample$delay_marker, test_sample$pred))
+
+# Modelling the residuals
+# train the model 
+model<- train(logistic_form, data=train, trControl=train_control, method="glm", family=binomial())
+res <- resid(model1)
+train$residual <- res
