@@ -48,7 +48,9 @@ data <- data %>% mutate(ArrDelay = ifelse(ArrDelay < -20, -20,
 
 # getting histogram of ArrDelay
 ggplot(data, aes(x = ArrDelay)) +
-  geom_histogram()
+  geom_density(fill = '#c11313') +
+  theme_bw() +
+  xlab("Arrival delay time (minutes)")
 
 # going to create a binary target 
 data <- data %>% mutate(delay_marker = ifelse(ArrDelay > 40, 1, 0))
@@ -59,7 +61,7 @@ ggplot(data, aes(x = as.factor(delay_marker))) +
   scale_y_continuous(labels = scales::percent) +
   ylab('') +
   xlab('Flight status') +
-  ggtitle("The percentage of all flights being delayed") +
+  # ggtitle("The percentage of all flights being delayed") +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5)) +
   scale_x_discrete(labels = c('Not delayed', 'Delayed'))
@@ -80,7 +82,7 @@ airlines <- airlines %>% mutate(mean_diff = amt_delay - mean_delay) %>%
 
 ggplot(airlines, aes(x = reorder(UniqueCarrier, mean_diff), y = mean_diff, fill = UniqueCarrier)) +
   geom_bar(stat = 'identity') +
-  ggtitle('Percentage of flights delayed by airline relative to the mean number of delays') +
+ # ggtitle('Percentage of flights delayed by airline relative to the mean number of delays') +
   xlab('Airline') +
   ylab('') +
   guides(fill = FALSE) +
@@ -104,7 +106,7 @@ airports <- airports %>% mutate(mean_diff = amt_delay - mean_airport_delay)
 
 ggplot(airports, aes(x = reorder(Origin, mean_diff), y = mean_diff, fill = Origin)) +
   geom_bar(stat = 'identity') +
-  ggtitle('Percentage of flights delayed by origin airport relative to the mean number of delays') +
+  # ggtitle('Percentage of flights delayed by origin airport relative to the mean number of delays') +
   xlab('Airport') +
   ylab('') +
   guides(fill = FALSE) +
@@ -114,7 +116,37 @@ ggplot(airports, aes(x = reorder(Origin, mean_diff), y = mean_diff, fill = Origi
   theme(plot.title = element_text(hjust = 0.5))
 
 # what are biggest factors that contribute to a delay
-# to do
+# taking rows that have a delay
+data_delay <- data %>% filter(delay_marker == 1) %>%
+  
+  select(CarrierDelay, WeatherDelay, NASDelay, SecurityDelay, LateAircraftDelay) %>%
+  
+  mutate(CarrierDelay = ifelse(CarrierDelay > 0, 1, 0),
+         WeatherDelay = ifelse(WeatherDelay > 0, 1, 0),
+         NASDelay = ifelse(NASDelay > 0, 1, 0),
+         SecurityDelay = ifelse(SecurityDelay > 0, 1, 0),
+         LateAircraftDelay = ifelse(LateAircraftDelay > 0, 1, 0)) %>%
+  
+  gather(reason, delay,CarrierDelay:LateAircraftDelay) %>% 
+  
+  group_by(reason) %>%
+  
+  summarise(total = sum(delay)) %>%
+  
+  mutate(pct_total = total / sum(total))
+
+# plotting
+ggplot(data_delay, aes(x = reorder(reason, pct_total), y = pct_total, fill = reason)) +
+  geom_bar(stat = 'identity') +
+  # ggtitle('Percentage of flights delayed by origin airport relative to the mean number of delays') +
+  xlab('Delay reason') +
+  ylab('') +
+  guides(fill = FALSE) +
+  scale_y_continuous(labels = scales::percent) +
+  #geom_hline(yintercept  = 0) +
+  theme_bw() +
+  scale_x_discrete(labels = c('Security', 'Weather', "Carrier", "National air system", "Late aircraft"))
+  #theme(plot.title = element_text(hjust = 0.5))
 
 # Preparing data for clustering --------------------------------------------
 # finding columns with only one unique value
