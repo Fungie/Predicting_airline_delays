@@ -8,11 +8,15 @@ library(caret)
 library(corrplot)
 library(pROC)
 library(xgboost)
-
+library(rgdal)
+library(bit64)
+library(stringr)
+library(gridExtra)
 
 # Reading in data
 setwd("/Users/aurenferguson/Documents/Predicting_airline_delays/")
 data <- fread("data/DelayedFlights.csv")
+
 
 
 # High level EDA ----------------------------------------------------------
@@ -52,6 +56,10 @@ ggplot(data, aes(x = ArrDelay)) +
   theme_bw() +
   xlab("Arrival delay time (minutes)")
 
+# saving
+ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/delay_densityplot.png",
+       width = 12, height = 8, units = "cm")
+
 # going to create a binary target 
 data <- data %>% mutate(delay_marker = ifelse(ArrDelay > 40, 1, 0))
 
@@ -65,6 +73,9 @@ ggplot(data, aes(x = as.factor(delay_marker))) +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5)) +
   scale_x_discrete(labels = c('Not delayed', 'Delayed'))
+
+ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/amntdelay_hist.png",
+       width = 12, height = 8, units = "cm")
 
 
 # More indepth EDA --------------------------------------------------------
@@ -89,7 +100,11 @@ ggplot(airlines, aes(x = reorder(UniqueCarrier, mean_diff), y = mean_diff, fill 
   scale_y_continuous(labels = scales::percent) +
   geom_hline(yintercept  = 0) +
   theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size=6))
+
+ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/best_airlines.png",
+       width = 12, height = 8, units = "cm")
 
 # Best and worst departing  large airports
 airports <- data %>%
@@ -113,7 +128,12 @@ ggplot(airports, aes(x = reorder(Origin, mean_diff), y = mean_diff, fill = Origi
   scale_y_continuous(labels = scales::percent) +
   geom_hline(yintercept  = 0) +
   theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size=5))
+
+
+ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/best_airports.png",
+       width = 12, height = 8, units = "cm")
 
 # what are biggest factors that contribute to a delay
 # taking rows that have a delay
@@ -145,8 +165,41 @@ ggplot(data_delay, aes(x = reorder(reason, pct_total), y = pct_total, fill = rea
   scale_y_continuous(labels = scales::percent) +
   #geom_hline(yintercept  = 0) +
   theme_bw() +
-  scale_x_discrete(labels = c('Security', 'Weather', "Carrier", "National air system", "Late aircraft"))
-  #theme(plot.title = element_text(hjust = 0.5))
+  scale_x_discrete(labels = c('Security', 'Weather', "Carrier", "National air system", "Late aircraft")) +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size=6))
+
+ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/delay_reasons.png",
+       width = 12, height = 8, units = "cm")
+
+# busiest routes
+busy_routes <- data %>% group_by(Origin, Dest) %>%
+  summarise(total = n(),
+            delay_count = sum(delay_marker),
+            pct_delay = delay_count / total) %>%
+  arrange(desc(total)) %>%
+  head(20) %>%
+  arrange(pct_delay) %>%
+  mutate(route = str_c(Origin, Dest, sep = "-"))
+
+mean_busy_route <- mean(busy_routes$pct_delay)
+
+busy_routes <- busy_routes %>% mutate(pct_delay_diff = pct_delay - mean_busy_route)
+
+ggplot(busy_routes, aes(x = reorder(route, pct_delay_diff), y = pct_delay_diff, fill = route)) +
+  geom_bar(stat = 'identity') +
+  # ggtitle('Percentage of flights delayed by origin airport relative to the mean number of delays') +
+  xlab('Flight route') +
+  ylab('') +
+  guides(fill = FALSE) +
+  scale_y_continuous(labels = scales::percent) +
+  #geom_hline(yintercept  = 0) +
+  theme_bw() +
+  theme(axis.text.x = element_text(size=3))
+
+ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/busy_routes.png",
+       width = 14, height = 7, units = "cm")
+
 
 # Preparing data for clustering --------------------------------------------
 # finding columns with only one unique value
@@ -181,7 +234,8 @@ set.seed(876)
 k_means_2 <- kmeans(x =  data_contin, centers = 2, nstart = 20)
 
 # comparing cluster value to delayed marker
-prop.table(table(data$delay_marker, k_means_2$cluster), margin = 2) # two clusters dont predict if flight is delayed v well
+initial_kmeans_table <- as.data.frame.matrix(round(prop.table(table(data$delay_marker, k_means_2$cluster) , margin = 2) * 100)) # two clusters dont predict if flight is delayed v well
+saveRDS(initial_kmeans_table, "/Users/aurenferguson/Documents/Predicting_airline_delays/rds/initial_kmeans_table.rds")
 
 # Checking other values of k
 # Initialize total within sum of squares error
@@ -199,12 +253,27 @@ plot(1:5, wss, type = "b",
      xlab = "Number of Clusters",
      ylab = "Within groups sum of squares")
 
+k_means_scree <- data.frame(num_clust = 1:5,
+                            errors = wss)
+
+ggplot(k_means_scree, aes(x = num_clust, y = errors)) +
+  geom_line() +
+  geom_point() +
+  theme_bw() +
+  ylab("Within groups sum of squares") +
+  xlab("Within groups sum of squares")
+
+ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/kmeans_scree.png",
+       width = 12, height = 8, units = "cm")
+
 # An elbow appears at 3 clusters which is an interesting result
 set.seed(6364)
 k_means_3 <- kmeans(data_contin, centers = 3 , nstart = 20)
 table(data$delay_marker, k_means_3$cluster)
-prop.table(table(data$delay_marker, k_means_3$cluster), margin = 2) # cluster 3 (in this case) has a higher proportion of delayed, this could be useful for our logistic regression model
-#
+
+kmeans_3_table <- as.data.frame.matrix(round(prop.table(table(data$delay_marker, k_means_3$cluster), margin = 2) * 100)) # cluster 3 (in this case) has a higher proportion of delayed, this could be useful for our logistic regression model
+saveRDS(kmeans_3_table, "/Users/aurenferguson/Documents/Predicting_airline_delays/rds/kmeans_3_table.rds")
+
 # visualisting results
 # since more than 2 variables will use PCA
 # Perform scaled PCA: pr.out
@@ -224,6 +293,33 @@ pve <- pr_var / sum(pr_var)
 plot(pve, xlab = "Principal Component",
      ylab = "Proportion of Variance Explained",
      ylim = c(0, 1), type = "b")
+
+pca_scree <- data.frame(num_component = 1:4,
+                        prop_variance = pve)
+
+pca_scree <- pca_scree %>% mutate(cum_prop_variance = cumsum(prop_variance))
+
+prop_var_pca <-ggplot(pca_scree, aes(x = num_component, y = prop_variance)) +
+              geom_line() +
+              geom_point() +
+              theme_bw() +
+              ylab("Proportion of Variance Explained") +
+              xlab("Principal Component") +
+              theme(axis.title.y = element_text(size=6),
+                    axis.title.x = element_text(size=6))
+
+cum_var_pca <-ggplot(pca_scree, aes(x = num_component, y = cum_prop_variance)) +
+              geom_line() +
+              geom_point() +
+              theme_bw() +
+              ylab("Cumulative Proportion of Variance Explained") +
+              xlab("Principal Component") +
+              theme(axis.title.y = element_text(size=6),
+                    axis.title.x = element_text(size=6))
+
+two_plot <- grid.arrange(prop_var_pca, cum_var_pca, ncol = 2)
+ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/pca_scree.png", two_plot,
+       width = 12, height = 8, units = "cm")
 
 # Plot cumulative proportion of variance explained
 plot(cumsum(pve), xlab = "Plrincipal Component",
