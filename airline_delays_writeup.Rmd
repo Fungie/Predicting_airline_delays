@@ -1,0 +1,160 @@
+---
+title: 'Exploring Airline Delays'
+author: 'Auren Ferguson'
+date: '07 October 2017'
+output:
+  pdf_document:
+    fig_height: 5
+    fig_width: 7
+    highlight: tango
+    number_sections: no
+    toc: FALSE
+---
+
+
+# Summary
+
+This document explores US airline flights, specifically delays for the year 2008.
+
+# EDA
+
+# High Level EDA
+
+Ultimately, we would like to be able predict if a flight will be delayed **before the flight**, i.e, we want to avoid data leakage. The target variable will be ```ArrDelay```, this is the time in minutes that a flight was delayed by. There was 8387 NA values in ```ArrDelay```, these rows were removed as the data set has over 1.9 million rows. Figure 1 shows a density plot of ```ArrDelay``` showing the majority of delays are less than 100 minutes (extreme values are capped in the plot).
+
+![Density plot of flight delay time](/Users/aurenferguson/Documents/Predicting_airline_delays/images/delay_densityplot.png)
+
+To create a binary delayed indicator, a sensible value of ```ArrDelay``` had to be picked. This was done in a rather arbitrary manner based upon what I feel constitutes a flight delay, i.e. I don't consider a flight that arrives 5 minutes past its scheduled time to be delayed. I picked a time of 40 minutes. Figure 2 shows a histogram of flight delays, surprisingly, approx 37% of flights are delayed were delayed for 40 minutes or more.
+
+![Histogram of flight delays](/Users/aurenferguson/Documents/Predicting_airline_delays/images/amntdelay_hist.png)
+
+# More Indepth EDA
+This section looks deeping into the data to extract insights that may be of benefit to consumers and airlines.
+
+## What times of the year are the worst for travelling
+Figure 3 shows average delay times (monthly adjusted) which shows several spikes in delay times including ones in June and towards the end of the year. Figure 4 is zoomed in version of figure 3 which shows spikes in delays that correspond to Thanksgiving and Christmas, these are times when lots of people will be travelling and so delays can be expected.
+
+![Delay times as a function of time (monthly adjusted)](/Users/aurenferguson/Documents/Predicting_airline_delays/images/dates.png)
+
+![Delay times as a function of time (monthly adjusted) for the American holiday period](/Users/aurenferguson/Documents/Predicting_airline_delays/images/dates_zoomed.png)
+
+
+## Which airlines are the most punctual
+
+Figure 5 shows how each airline's delayed rate compared to the mean delayed rate. The best airlines to travel with include: South West, Frontier Airlines and US Airways. While the worst airlines include: Jet Blue, American Airlines and United Airlines. 
+
+![Best and worst airlines in terms of punctuality (y-axis is the differnce between airline delay rate and global delay rate)](/Users/aurenferguson/Documents/Predicting_airline_delays/images/best_airlines.png)
+
+## The best and worst large airports
+Figure 6 shows the how the 20 largest airports (>8000 flights) perform. Some of the best airports include: Phoenix, Las Vegas and LA. While some of the worst airports are: JFK, laguardia and O'Hare (Chicago). This is good to know but usually one doesn't have too much choice in airport unless you are in a large city such as New York.
+
+![Best and worst large airports in terms of punctuality (y-axis is the differnce between airport delay rate and global delay rate)](/Users/aurenferguson/Documents/Predicting_airline_delays/images/best_airports.png)
+
+## Busiest routes
+The delay rate of the 20 busiest routes (>2900 flights) are shown in figure 7. Some of the best routes include: Phoenix-LA, Houston-Dallas and Atlanta-Orlando while some of the worst routes are: laguardia-O'Hare, Atlanta-Washington State and LA-San Francisco.
+
+![Best and worst routes in terms of punctuality (y-axis is the differnce between route delay rate and global delay rate)](/Users/aurenferguson/Documents/Predicting_airline_delays/images/busy_routes.png)
+
+## Factors that cause delays
+The largest factors that cause delays are shown in figure 8. Somewhat to my surprise, weather plays a small role in delay reasons with the majority of delays stemming from carrier problems and air traffic control. This is somewhere airlines could target to improve outcomes.
+
+![Contributers to flight delays](/Users/aurenferguson/Documents/Predicting_airline_delays/images/delay_reasons.png)
+
+# Clustering analysis
+k-means clustering was undertaken to see if any that could be partitioned into preferably 2 distinct groups, delayed and not delayed flights. Some data preprocessing had to be undertaken before running the model. These included:
+
+* Removing zero variance variables
+* Remove variables that uses actual flight information, i.e. actual flight time
+* only using the hour from scheduled depart and arrive time
+* taking only continious variables
+* scaling the data
+
+The variables that were input into the model were:
+
+* Scheduled departue time
+* Scheduled arrival time
+* Estimated flight length
+* Flight distance
+
+It would of been nice to have more continious variables to be able to model with.
+
+At first, 2 cluster centers were used as input into the model as ideally it would be able to seperate delayed and on time flights. The results of this are shown in table 1. As we can see, the clustering wasn't very succesful as both clusters have a similar percentage of delayed flights.
+
+```{r, echo=FALSE}
+library(knitr)
+initial_kmeans <- readRDS("/Users/aurenferguson/Documents/Predicting_airline_delays/rds/initial_kmeans_table.rds")
+kable(initial_kmeans, col.names = c("Cluster 1", "Cluster 2"), caption = "Results of k = 2 when compared to delayed/not delayed target (%)", align = "c")
+```
+
+In order to see if this could be improved upon, k-means clustering was done for 1 to 5 centers and the results are shown in the scree plot in figure 9. There is a distinct elbow in the within group sum of squares at k = 3, perhaps this could be more related to delayed or on time flights. Similar to table 1, the results for k = 3 are shown in table 2
+
+![Scree plot for cluster centers between 1 and 5](/Users/aurenferguson/Documents/Predicting_airline_delays/images/kmeans_scree.png)
+
+```{r, echo=FALSE}
+k_means_3 <- readRDS("/Users/aurenferguson/Documents/Predicting_airline_delays/rds/kmeans_3_table.rds")
+kable(k_means_3, col.names = c("Cluster 1", "Cluster 2", "Cluster 3"), caption = "Results of k = 3 when compared to delayed/not delayed target (%)", align = "c")
+
+```
+
+We can see from table 2 that cluster 3 has a noticible increase in delays compared to the other 2. This could be a helpful variable in our final model for predicting if a flight will be delayed but having 3 clusters for a binary outcome isn't very intuative. The input variables into the model (shown above) have a high correlation and therefore, reducing the number of dimensions using PCA may be of some benefit as it will remove the correlation (which will be helpful for the logistic regression model) and may improve outcomes in terms of have 2 distinct clusters. The results of the PCA are shown in figure 10 which show that the first two principle components account for over 90% of the variance of the input variables. k-means clustering was ran on the first two principle components with k=2 and the results are shown in table 3.
+
+![a) Explained variance per principle component and b) cumulative variance with number of components](/Users/aurenferguson/Documents/Predicting_airline_delays/images/pca_scree.png)
+
+```{r, echo=FALSE}
+k_means_pca <- readRDS("/Users/aurenferguson/Documents/Predicting_airline_delays/rds/kmeans_pca_table.rds")
+kable(k_means_pca, col.names = c("Cluster 1", "Cluster 2"), caption = "Results of k = 2 performed on the first 2 princple components when compared to delayed/not delayed target (%)", align = "c")
+```
+
+From table 3 we can see we have two distinct groups with a 7% increase in delays in cluster 2 compared to cluster 1. While not an overwhealming seperation between groups it may be a predictive attribute in the logistic model. This can be seen in figure 11 which shows the the two clusters and whether the flight has been delayed or not. pca1, pca2 and assigned cluster are to be included for further modelling.
+
+![Scatter plot of pca1 vs pca2 showing separation of clusters and flight status](/Users/aurenferguson/Documents/Predicting_airline_delays/images/pca_cluster_delay.png)
+
+# Logistic regression model
+Using the input variables and the variables that were engineered above, a logistic regression model is used to predict if a flight will be delayed or not. before modelling, a preprocessing stage must be done. This included:
+
+* Spliting the data into training and test sets (80/20 split)
+* Reducing the number of factor levels for variables: ```Origin```, ```Dest```, ```UniqueCarrier```
+      * This was done by scoring each origin, etc and labelling them good, medium, bad etc
+* In a similar manner, month and day of week were grouped together into good, medium, bad etc
+
+The final inputs into the model were:
+
+* Month when flight happend
+* Day of week when flight happend
+* pca1
+* pca2
+* assigned cluster (removed in final model)
+* Airline
+* Flight origin
+* Flight destination
+
+A variable correlation plot was done to ensure that none of the input variables were highly correlated to improve model performance and is shown in figure 12. Generally, I allow a correlation cofficient of 0.4, although there is no hard rule on this and very much person dependant.
+
+![Correlation plot of input variables into the model](/Users/aurenferguson/Documents/Predicting_airline_delays/images/corrplot.png)
+
+
+Ten fold cross-validation was done when training model to help prevent overfitting. The probobility cutoff that decides whether or not the prediction is assigned as delayed or not was approx 0.34.
+
+## Model performance on test data
+The confusion matrix for the model on test data is shown in table 4 with other metrics shown in table 5
+
+```{r echo=FALSE, include=FALSE}
+library(dplyr)
+library(data.table)
+```
+
+
+```{r, echo=FALSE}
+
+confus_matrix_ob <- readRDS("/Users/aurenferguson/Documents/Predicting_airline_delays/rds/test_confusionmatrix.rds")
+confus_matrix_table <- as.data.frame.matrix(round(prop.table(confus_matrix_ob$table) * 100))
+confus_matrix_table <- confus_matrix_table %>% setDT(keep.rownames = TRUE) %>% mutate(rn = ifelse(rn == 0,1,0),
+                                                                                      rn = ifelse(rn == 1, 'Delayed', 'Not delayed'))
+
+metrics <- as.data.frame(confus_matrix_ob$byClass) %>% setDT(keep.rownames = TRUE)
+colnames(metrics) <- c("Metric", "Score")
+kable(confus_matrix_table, col.names = c("Prediction", "Delayed", "Not delayed"), caption = "Confustion matrix on test data", align = "c")
+```
+
+
+

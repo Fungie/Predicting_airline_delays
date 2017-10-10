@@ -12,6 +12,7 @@ library(rgdal)
 library(bit64)
 library(stringr)
 library(gridExtra)
+library(tidyr)
 
 # Reading in data
 setwd("/Users/aurenferguson/Documents/Predicting_airline_delays/")
@@ -50,7 +51,7 @@ quantile(data$ArrDelay, probs = seq(0,1,0.05))
 data <- data %>% mutate(ArrDelay = ifelse(ArrDelay < -20, -20,
                                    ifelse(ArrDelay > 250, 250, ArrDelay)))
 
-# getting histogram of ArrDelay
+# getting density plot of ArrDelay
 ggplot(data, aes(x = ArrDelay)) +
   geom_density(fill = '#c11313') +
   theme_bw() +
@@ -248,10 +249,6 @@ for (i in 1:5) {
   wss[i] <- k_means$tot.withinss
 }
 
-# Plot total within sum of squares vs. number of clusters
-plot(1:5, wss, type = "b",
-     xlab = "Number of Clusters",
-     ylab = "Within groups sum of squares")
 
 k_means_scree <- data.frame(num_clust = 1:5,
                             errors = wss)
@@ -261,7 +258,7 @@ ggplot(k_means_scree, aes(x = num_clust, y = errors)) +
   geom_point() +
   theme_bw() +
   ylab("Within groups sum of squares") +
-  xlab("Within groups sum of squares")
+  xlab("k")
 
 ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/kmeans_scree.png",
        width = 12, height = 8, units = "cm")
@@ -305,8 +302,8 @@ prop_var_pca <-ggplot(pca_scree, aes(x = num_component, y = prop_variance)) +
               theme_bw() +
               ylab("Proportion of Variance Explained") +
               xlab("Principal Component") +
-              theme(axis.title.y = element_text(size=6),
-                    axis.title.x = element_text(size=6))
+              theme(axis.title.y = element_text(size=5),
+                    axis.title.x = element_text(size=5))
 
 cum_var_pca <-ggplot(pca_scree, aes(x = num_component, y = cum_prop_variance)) +
               geom_line() +
@@ -314,17 +311,14 @@ cum_var_pca <-ggplot(pca_scree, aes(x = num_component, y = cum_prop_variance)) +
               theme_bw() +
               ylab("Cumulative Proportion of Variance Explained") +
               xlab("Principal Component") +
-              theme(axis.title.y = element_text(size=6),
-                    axis.title.x = element_text(size=6))
+              theme(axis.title.y = element_text(size=5),
+                    axis.title.x = element_text(size=5))
 
 two_plot <- grid.arrange(prop_var_pca, cum_var_pca, ncol = 2)
 ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/pca_scree.png", two_plot,
-       width = 12, height = 8, units = "cm")
+       width = 12, height = 5, units = "cm")
 
-# Plot cumulative proportion of variance explained
-plot(cumsum(pve), xlab = "Plrincipal Component",
-     ylab = "Cumulative Proportion of Variance Explained",
-     ylim = c(0, 1), type = "b")
+
 
 pred <- as.data.frame(predict(pca_data_contin, newdata=data_contin))
 
@@ -348,7 +342,8 @@ ggplot(component_df_slim,aes(x=pca1,y=pca2, color = as.factor(cluster))) +
 ######################
 # try pca then clustering
 k_means_pca <- kmeans(component_df %>% select(pca1,pca2), centers = 2, nstart = 20)
-prop.table(table(data$delay_marker, k_means_pca$cluster), margin = 2) # achieved same results with two clusters than above
+kmeans_pca_table <- as.data.frame.matrix(round(prop.table(table(data$delay_marker, k_means_pca$cluster), margin = 2) * 100)) # achieved same results with two clusters than above
+saveRDS(kmeans_pca_table, "/Users/aurenferguson/Documents/Predicting_airline_delays/rds/kmeans_pca_table.rds")
 
 # appending pca clustering to component
 component_df$cluster_pca <- k_means_pca$cluster
@@ -360,7 +355,14 @@ index_component <- sample(component_df$index, 1000)
 component_df_slim <- component_df %>% filter(index %in% index_component)
 
 ggplot(component_df_slim,aes(x=pca1,y=pca2, color = as.factor(cluster_pca), shape = as.factor(delay_marker))) + 
-  geom_point()
+  geom_point() +
+  theme_bw() +
+  theme(legend.text=element_text(size=5),
+        legend.title=element_text(size=5))
+
+ggsave("/Users/aurenferguson/Documents/Predicting_airline_delays/images/pca_cluster_delay.png", 
+       width = 12, height = 8, units = "cm")
+
 
 # slimming down component_df for only columns we want for model
 component_df <- component_df %>% select(pca1, pca2, cluster_pca)
@@ -473,8 +475,7 @@ logistic_form <- as.formula(as.factor(delay_marker) ~ as.factor(Month_alter)+
                                            as.factor(Carrier_alter) + 
                                            #cluster_pca +
                                            as.factor(Origin_alter) +
-                                           as.factor(Dest_alter),
-                                           as.factor(y_pred))
+                                           as.factor(Dest_alter))
 
 train_control<- trainControl(method="cv", number=10, allowParallel = TRUE)
 
@@ -487,8 +488,8 @@ model <-  train(logistic_form,
 # print cv scores
 summary(model)
 model$results
-
-
+var_importance <- varImp(model)$importance
+saveRDS(var_importance, "/Users/aurenferguson/Documents/Predicting_airline_delays/rds/var_importance_table.rds")
 
 
 # creating correlation plot
@@ -502,6 +503,10 @@ corr_data <- cor(train %>% select(Month_alter ,
                                 Dest_alter))
 
 corrplot(corr_data, method = 'number')
+par(xpd=TRUE)
+png(filename = "/Users/aurenferguson/Documents/Predicting_airline_delays/images/corrplot.png", units = 'cm',
+    width = 20, height = 20, res = 500)
+dev.off()
 
 # predict on train
 pred <- predict(model, newdata = train, type = 'prob')
@@ -538,7 +543,7 @@ test$pred_bin <- ifelse(test$pred > 0.3425,1,0)
 
 # confustin matrix for test
 test_confusion <- confusionMatrix(data = test$pred_bin, reference = test$delay_marker)
-
+saveRDS(test_confusion, "/Users/aurenferguson/Documents/Predicting_airline_delays/rds/test_confusionmatrix.rds")
 test_confusion$byClass
 
 # sampling test
@@ -549,6 +554,10 @@ test_sample <- test %>% filter(index %in% index_test)
 # ROC curve
 auc <- auc(test_sample$delay_marker, test_sample$pred)
 plot(roc(test_sample$delay_marker, test_sample$pred))
+png(filename = "/Users/aurenferguson/Documents/Predicting_airline_delays/images/roc_test.png", units = 'cm',
+    width = 20, height = 20, res = 500)
+
+
 
 
 
